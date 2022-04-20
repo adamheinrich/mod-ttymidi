@@ -38,7 +38,7 @@
 #include "mod-semaphore.h"
 
 #define MAX_DEV_STR_LEN               32
-#define MAX_MSG_SIZE                1024
+#define MAX_MSG_SIZE                  200
 
 /* import ioctl definition here, as we can't include both "sys/ioctl.h" and "asm/termios.h" */
 extern int ioctl (int __fd, unsigned long int __request, ...) __THROW;
@@ -186,7 +186,7 @@ static inline uint8_t write_retry_or_success(int fd, const void* src, uint8_t si
 /* --------------------------------------------------------------------- */
 // JACK stuff
 
-const uint8_t ringbuffer_msg_size = 3 + sizeof(uint8_t) + sizeof(jack_nframes_t);
+const uint8_t ringbuffer_msg_size = MAX_MSG_SIZE + sizeof(uint8_t) + sizeof(jack_nframes_t);
 
 static int process_client(jack_nframes_t frames, void* ptr)
 {
@@ -204,20 +204,20 @@ static int process_client(jack_nframes_t frames, void* ptr)
         jack_midi_clear_buffer(portbuf_in);
 
         char bufc[ringbuffer_msg_size];
-        jack_midi_data_t bufj[3];
+        jack_midi_data_t bufj[MAX_MSG_SIZE];
         uint8_t bsize;
         jack_nframes_t buf_frame, offset, last_buf_frame = 0;
 
         while (jack_ringbuffer_read(jackdata->ringbuffer_in, bufc, ringbuffer_msg_size) == ringbuffer_msg_size)
         {
             // Format: [data, data_size, frame]
-            memcpy(&bsize, bufc+3, sizeof(uint8_t));
-            memcpy(&buf_frame, bufc+3+sizeof(uint8_t), sizeof(jack_nframes_t));
+            memcpy(&bsize, bufc+MAX_MSG_SIZE, sizeof(uint8_t));
+            memcpy(&buf_frame, bufc+MAX_MSG_SIZE+sizeof(uint8_t), sizeof(jack_nframes_t));
 
-            uint8_t i=0;
+            int i=0;
             for (; i<bsize; ++i)
                 bufj[i] = bufc[i];
-            for (; i<3; ++i)
+            for (; i<MAX_MSG_SIZE; ++i)
                 bufj[i] = 0;
 
             buf_frame += frames - jackdata->bufsize_compensation;
@@ -260,7 +260,7 @@ static int process_client(jack_nframes_t frames, void* ptr)
             {
                 if (jack_midi_event_get(&event, portbuf_out, i) != 0)
                     break;
-                if (event.size > 3)
+                if (event.size > MAX_MSG_SIZE)
                     continue;
 
                 // set first byte as size
@@ -624,7 +624,7 @@ rerun:
               buffer[3] = 1;
               // timestamp
               const jack_nframes_t frames = jack_frame_time(jackdata->client);
-              memcpy(buffer+4, &frames, sizeof(jack_nframes_t));
+              memcpy(buffer+MAX_MSG_SIZE+1, &frames, sizeof(jack_nframes_t));
               // done
               jack_ringbuffer_write(jackdata->ringbuffer_in, (const char *) buffer, ringbuffer_msg_size);
             }
@@ -652,11 +652,11 @@ rerun:
 
         // Add how many buffer bytes are used
         const uint8_t used = data_bytes_cnt + 1;
-        memcpy(buffer+3, &used, sizeof(uint8_t));
+        memcpy(buffer+MAX_MSG_SIZE, &used, sizeof(uint8_t));
 
         // Add a timestamp
         const jack_nframes_t frames = jack_frame_time(jackdata->client);
-        memcpy(buffer+4, &frames, sizeof(jack_nframes_t));
+        memcpy(buffer+MAX_MSG_SIZE+1, &frames, sizeof(jack_nframes_t));
 
         // Sanity check
         if ((buffer[0] & 0x80) && !(buffer[1] & 0x80) && !(buffer[2] & 0x80)) {
